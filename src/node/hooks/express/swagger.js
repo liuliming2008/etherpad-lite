@@ -1,4 +1,3 @@
-var log4js = require('log4js');
 var express = require('express');
 var apiHandler = require('../../handler/APIHandler');
 var apiCaller = require('./apicalls').apiCaller;
@@ -86,7 +85,7 @@ var API = {
     },
     "createIfNotExistsFor" : {
       "func": "createGroupIfNotExistsFor",
-      "description": "this functions helps you to map your application group ids to etherpad lite group ids",
+      "description": "this functions helps you to map your application group ids to Etherpad group ids",
       "response": {"groupID":{"type":"string"}}
     },
     "delete" : {
@@ -124,7 +123,7 @@ var API = {
     },
     "createIfNotExistsFor": {
       "func": "createAuthorIfNotExistsFor",
-      "description": "this functions helps you to map your application author ids to etherpad lite author ids",
+      "description": "this functions helps you to map your application author ids to Etherpad author ids",
       "response": {"authorID":{"type":"string"}}
     },
     "listPads": {
@@ -356,7 +355,17 @@ exports.expressCreateServer = function (hook_name, args, cb) {
 
     args.app.use(basePath, subpath);
 
-    swagger.setAppHandler(subpath);
+    //hack!
+    var swagger_temp = swagger
+    swagger = swagger.createNew(subpath);
+    swagger.params = swagger_temp.params
+    swagger.queryParam = swagger_temp.queryParam
+    swagger.pathParam = swagger_temp.pathParam
+    swagger.bodyParam = swagger_temp.bodyParam
+    swagger.formParam = swagger_temp.formParam
+    swagger.headerParam = swagger_temp.headerParam
+    swagger.error = swagger_temp.error
+    //swagger.setAppHandler(subpath);
 
     swagger.addModels(swaggerModels);
 

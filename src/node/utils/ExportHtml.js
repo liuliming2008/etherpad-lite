@@ -21,7 +21,6 @@ var padManager = require("../db/PadManager");
 var ERR = require("async-stacktrace");
 var Security = require('ep_etherpad-lite/static/js/security');
 var hooks = require('ep_etherpad-lite/static/js/pluginfw/hooks');
-var getPadPlainText = require('./ExportHelper').getPadPlainText;
 var _analyzeLine = require('./ExportHelper')._analyzeLine;
 var _encodeWhitespace = require('./ExportHelper')._encodeWhitespace;
 
@@ -31,8 +30,6 @@ function getPadHTML(pad, revNum, callback)
   var html;
   async.waterfall([
   // fetch revision atext
-
-
   function (callback)
   {
     if (revNum != undefined)
@@ -79,6 +76,18 @@ function getHTMLFromAtext(pad, atext, authorColors)
 
   var tags = ['h1', 'h2', 'strong', 'em', 'u', 's'];
   var props = ['heading1', 'heading2', 'bold', 'italic', 'underline', 'strikethrough'];
+
+  hooks.aCallAll("exportHtmlAdditionalTags", pad, function(err, newProps){
+    newProps.forEach(function (propName, i){
+      tags.push(propName);
+      props.push(propName);
+    });
+  });
+
+  // holds a map of used styling attributes (*1, *2, etc) in the apool
+  // and maps them to an index in props
+  // *3:2 -> the attribute *3 means strong
+  // *2:5 -> the attribute *2 means s(trikethrough)
   var anumMap = {};
   var css = "";
 
@@ -88,24 +97,24 @@ function getHTMLFromAtext(pad, atext, authorColors)
 
   if(authorColors){
     css+="<style>\n";
-    
+
     for (var a in apool.numToAttrib) {
       var attr = apool.numToAttrib[a];
-      
+
       //skip non author attributes
       if(attr[0] === "author" && attr[1] !== ""){
         //add to props array
         var propName = "author" + stripDotFromAuthorID(attr[1]);
         var newLength = props.push(propName);
         anumMap[a] = newLength -1;
-        
+
         css+="." + propName + " {background-color: " + authorColors[attr[1]]+ "}\n";
       } else if(attr[0] === "removed") {
         var propName = "removed";
-        
+
         var newLength = props.push(propName);
         anumMap[a] = newLength -1;
-        
+
         css+=".removed {text-decoration: line-through; " + 
              "-ms-filter:'progid:DXImageTransform.Microsoft.Alpha(Opacity=80)'; "+ 
              "filter: alpha(opacity=80); "+
@@ -113,10 +122,12 @@ function getHTMLFromAtext(pad, atext, authorColors)
              "}\n";
       }
     }
-    
+
     css+="</style>";
   }
 
+  // iterates over all props(h1,h2,strong,...), checks if it is used in
+  // this pad, and if yes puts its attrib id->props value into anumMap
   props.forEach(function (propName, i)
   {
     var propTrueNum = apool.putAttrib([propName, true], true);
@@ -128,11 +139,6 @@ function getHTMLFromAtext(pad, atext, authorColors)
 
   function getLineHTML(text, attribs)
   {
-    var propVals = [false, false, false];
-    var ENTER = 1;
-    var STAY = 2;
-    var LEAVE = 0;
-
     // Use order of tags (b/i/u) as order of nesting, for simplicity
     // and decent nesting.  For example,
     // <b>Just bold<b> <b><i>Bold and italics</i></b> <i>Just italics</i>
@@ -145,17 +151,17 @@ function getHTMLFromAtext(pad, atext, authorColors)
     function getSpanClassFor(i){
       //return if author colors are disabled
       if (!authorColors) return false;
-      
+
       var property = props[i];
-   
+
       if(property.substr(0,6) === "author"){
         return stripDotFromAuthorID(property);
       }
-      
+
       if(property === "removed"){
         return "removed";
       }
-      
+
       return false;
     }
 
@@ -163,7 +169,7 @@ function getHTMLFromAtext(pad, atext, authorColors)
     {
       openTags.unshift(i);
       var spanClass = getSpanClassFor(i);
-      
+
       if(spanClass){
         assem.append('<span class="');
         assem.append(spanClass);
@@ -175,33 +181,18 @@ function getHTMLFromAtext(pad, atext, authorColors)
       }
     }
 
+    // this closes an open tag and removes its reference from openTags
     function emitCloseTag(i)
     {
       openTags.shift();
       var spanClass = getSpanClassFor(i);
-      
+
       if(spanClass){
         assem.append('</span>');
       } else {
         assem.append('</');
         assem.append(tags[i]);
         assem.append('>');
-      }
-    }
-    
-    function orderdCloseTags(tags2close)
-    {
-      for(var i=0;i<openTags.length;i++)
-      {
-        for(var j=0;j<tags2close.length;j++)
-        {
-          if(tags2close[j] == openTags[i])
-          {
-            emitCloseTag(tags2close[j]);
-            i--;
-            break;
-          }
-        }
       }
     }
 
@@ -219,118 +210,71 @@ function getHTMLFromAtext(pad, atext, authorColors)
       var iter = Changeset.opIterator(Changeset.subattribution(attribs, idx, idx + numChars));
       idx += numChars;
 
+      // this iterates over every op string and decides which tags to open or to close
+      // based on the attribs used
       while (iter.hasNext())
       {
         var o = iter.next();
-        var propChanged = false;
+        var usedAttribs = [];
+
+        // mark all attribs as used
         Changeset.eachAttribNumber(o.attribs, function (a)
         {
           if (a in anumMap)
           {
-            var i = anumMap[a]; // i = 0 => bold, etc.
-            if (!propVals[i])
-            {
-              propVals[i] = ENTER;
-              propChanged = true;
-            }
-            else
-            {
-              propVals[i] = STAY;
-            }
+            usedAttribs.push(anumMap[a]); // i = 0 => bold, etc.
           }
         });
-        for (var i = 0; i < propVals.length; i++)
+        var outermostTag = -1;
+        // find the outer most open tag that is no longer used
+        for (var i = openTags.length - 1; i >= 0; i--)
         {
-          if (propVals[i] === true)
+          if (usedAttribs.indexOf(openTags[i]) === -1)
           {
-            propVals[i] = LEAVE;
-            propChanged = true;
-          }
-          else if (propVals[i] === STAY)
-          {
-            propVals[i] = true; // set it back
+            outermostTag = i;
+            break;
           }
         }
-        // now each member of propVal is in {false,LEAVE,ENTER,true}
-        // according to what happens at start of span
-        if (propChanged)
+
+        // close all tags upto the outer most
+        if (outermostTag != -1)
         {
-          // leaving bold (e.g.) also leaves italics, etc.
-          var left = false;
-          for (var i = 0; i < propVals.length; i++)
+          while ( outermostTag >= 0 )
           {
-            var v = propVals[i];
-            if (!left)
-            {
-              if (v === LEAVE)
-              {
-                left = true;
-              }
-            }
-            else
-            {
-              if (v === true)
-              {
-                propVals[i] = STAY; // tag will be closed and re-opened
-              }
-            }
+            emitCloseTag(openTags[0]);
+            outermostTag--;
           }
+        }
 
-          var tags2close = [];
+        // open all tags that are used but not open
+        for (i=0; i < usedAttribs.length; i++)
+        {
+          if (openTags.indexOf(usedAttribs[i]) === -1)
+          {
+            emitOpenTag(usedAttribs[i])
+          }
+        }
 
-          for (var i = propVals.length - 1; i >= 0; i--)
-          {
-            if (propVals[i] === LEAVE)
-            {
-              //emitCloseTag(i);
-              tags2close.push(i);
-              propVals[i] = false;
-            }
-            else if (propVals[i] === STAY)
-            {
-              //emitCloseTag(i);
-              tags2close.push(i);
-            }
-          }
-          
-          orderdCloseTags(tags2close);
-          
-          for (var i = 0; i < propVals.length; i++)
-          {
-            if (propVals[i] === ENTER || propVals[i] === STAY)
-            {
-              emitOpenTag(i);
-              propVals[i] = true;
-            }
-          }
-          // propVals is now all {true,false} again
-        } // end if (propChanged)
         var chars = o.chars;
         if (o.lines)
         {
           chars--; // exclude newline at end of line, if present
         }
-        
+
         var s = taker.take(chars);
-        
+
         //removes the characters with the code 12. Don't know where they come 
         //from but they break the abiword parser and are completly useless
         s = s.replace(String.fromCharCode(12), "");
-        
+
         assem.append(_encodeWhitespace(Security.escapeHTML(s)));
       } // end iteration over spans in line
-      
-      var tags2close = [];
-      for (var i = propVals.length - 1; i >= 0; i--)
+
+      // close all the tags that are open after the last op
+      while (openTags.length > 0)
       {
-        if (propVals[i])
-        {
-          tags2close.push(i);
-          propVals[i] = false;
-        }
+        emitCloseTag(openTags[0])
       }
-      
-      orderdCloseTags(tags2close);
     } // end processNextChars
     if (urls)
     {
@@ -359,11 +303,13 @@ function getHTMLFromAtext(pad, atext, authorColors)
   // want to deal gracefully with blank lines.
   // => keeps track of the parents level of indentation
   var lists = []; // e.g. [[1,'bullet'], [3,'bullet'], ...]
+  var listLevels = []
   for (var i = 0; i < textLines.length; i++)
   {
     var line = _analyzeLine(textLines[i], attribLines[i], apool);
     var lineContent = getLineHTML(line.text, line.aline);
-            
+    listLevels.push(line.listLevel)
+
     if (line.listLevel)//If we are inside a list
     {
       // do list stuff
@@ -382,13 +328,27 @@ function getHTMLFromAtext(pad, atext, authorColors)
 
       if (whichList >= lists.length)//means we are on a deeper level of indentation than the previous line
       {
+        if(lists.length > 0){
+          pieces.push('</li>')
+        }
         lists.push([line.listLevel, line.listTypeName]);
+
+        // if there is a previous list we need to open x tags, where x is the difference of the levels
+        // if there is no previous list we need to open x tags, where x is the wanted level
+        var toOpen = lists.length > 1 ? line.listLevel - lists[lists.length - 2][0] - 1 : line.listLevel - 1
+
         if(line.listTypeName == "number")
         {
+          if(toOpen > 0){
+            pieces.push(new Array(toOpen + 1).join('<ol>'))
+          }
           pieces.push('<ol class="'+line.listTypeName+'"><li>', lineContent || '<br>');
         }
         else
         {
+          if(toOpen > 0){
+            pieces.push(new Array(toOpen + 1).join('<ul>'))
+          }
           pieces.push('<ul class="'+line.listTypeName+'"><li>', lineContent || '<br>');
         }
       }
@@ -417,52 +377,58 @@ function getHTMLFromAtext(pad, atext, authorColors)
           pieces.push('<br><br>');
         }
       }*/
-      else//means we are getting closer to the lowest level of indentation
+      else//means we are getting closer to the lowest level of indentation or are at the same level 
       {
-        while (whichList < lists.length - 1)
-        {
+        var toClose = lists.length > 0 ? listLevels[listLevels.length - 2] - line.listLevel : 0
+        if( toClose > 0){
+          pieces.push('</li>')
           if(lists[lists.length - 1][1] == "number")
           {
-            pieces.push('</li></ol>');
+            pieces.push(new Array(toClose+1).join('</ol>'))
+            pieces.push('<li>', lineContent || '<br>');
           }
           else
           {
-            pieces.push('</li></ul>');
+            pieces.push(new Array(toClose+1).join('</ul>'))
+            pieces.push('<li>', lineContent || '<br>');
           }
-          lists.length--;
+          lists = lists.slice(0,whichList+1)
+        } else {
+          pieces.push('</li><li>', lineContent || '<br>');
         }
-        pieces.push('</li><li>', lineContent || '<br>');
       }
     }
-    else//outside any list
+    else//outside any list, need to close line.listLevel of lists
     {
-      while (lists.length > 0)//if was in a list: close it before
-      {
-        if(lists[lists.length - 1][1] == "number")
-        {
+      if(lists.length > 0){
+        if(lists[lists.length - 1][1] == "number"){
           pieces.push('</li></ol>');
-        }
-        else
-        {
+          pieces.push(new Array(listLevels[listLevels.length - 2]).join('</ol>'))
+        } else {
           pieces.push('</li></ul>');
+          pieces.push(new Array(listLevels[listLevels.length - 2]).join('</ul>'))
         }
-        lists.length--;
-      }   
-      var lineContentFromHook = hooks.callAllStr("getLineHTMLForExport", 
-      {
+      }
+      lists = []
+
+      var context = {
         line: line,
+        lineContent: lineContent,
         apool: apool,
         attribLine: attribLines[i],
         text: textLines[i]
-      }, " ", " ", "");
-	  if (lineContentFromHook)
-	  {
-	    pieces.push(lineContentFromHook, '');
-	  } 
-	  else 
-	 {
-	   pieces.push(lineContent, '<br>');
-	 }		  
+      }
+
+      var lineContentFromHook = hooks.callAllStr("getLineHTMLForExport", context, " ", " ", "");
+
+      if (lineContentFromHook)
+      {
+        pieces.push(lineContentFromHook, '');
+      }
+      else
+      {
+        pieces.push(lineContent, '<br>');
+      }
     }
   }
   
@@ -487,36 +453,119 @@ exports.getPadHTMLDocument = function (padId, revNum, noDocType, callback)
   {
     if(ERR(err, callback)) return;
 
-    var head = 
-      (noDocType ? '' : '<!doctype html>\n') + 
-      '<html lang="en">\n' + (noDocType ? '' : '<head>\n' + 
-	'<title>' + Security.escapeHTML(padId) + '</title>\n' +
-        '<meta charset="utf-8">\n' + 
-        '<style> * { font-family: arial, sans-serif;\n' + 
-          'font-size: 13px;\n' + 
-          'line-height: 17px; }' + 
-          'ul.indent { list-style-type: none; }' +
-          'ol { list-style-type: decimal; }' +
-          'ol ol { list-style-type: lower-latin; }' +
-          'ol ol ol { list-style-type: lower-roman; }' +
-          'ol ol ol ol { list-style-type: decimal; }' +
-          'ol ol ol ol ol { list-style-type: lower-latin; }' +
-          'ol ol ol ol ol ol{ list-style-type: lower-roman; }' +
-          'ol ol ol ol ol ol ol { list-style-type: decimal; }' +
-          'ol  ol ol ol ol ol ol ol{ list-style-type: lower-latin; }' +
-          '</style>\n' + '</head>\n') + 
-      '<body>';
+    var stylesForExportCSS = "";
+    // Include some Styles into the Head for Export
+    hooks.aCallAll("stylesForExport", padId, function(err, stylesForExport){
+      stylesForExport.forEach(function(css){
+        stylesForExportCSS += css;
+      });
+      // Core inclusion of head etc.
+      var head = 
+        (noDocType ? '' : '<!doctype html>\n') + 
+        '<html lang="en">\n' + (noDocType ? '' : '<head>\n' + 
+          '<title>' + Security.escapeHTML(padId) + '</title>\n' +
+          '<meta charset="utf-8">\n' + 
+          '<style> * { font-family: arial, sans-serif;\n' + 
+            'font-size: 13px;\n' + 
+            'line-height: 17px; }' + 
+            'ul.indent { list-style-type: none; }' +
 
-    var foot = '</body>\n</html>\n';
+            'ol { list-style-type: none; padding-left:0;}' +
+            'body > ol { counter-reset: first second third fourth fifth sixth seventh eigth ninth tenth eleventh twelth thirteenth fourteenth fifteenth sixteenth; }' +
+            'ol > li:before {' +
+            'content: counter(first) ". " ;'+
+            'counter-increment: first;}' +
 
-    getPadHTML(pad, revNum, function (err, html)
-    {
-      if(ERR(err, callback)) return;
-      callback(null, head + html + foot);
+            'ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) ". " ;'+
+            'counter-increment: second;}' +
+
+            'ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) ". ";'+
+            'counter-increment: third;}' +
+
+            'ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) ". ";'+
+            'counter-increment: fourth;}' +
+
+            'ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) ". ";'+
+            'counter-increment: fifth;}' +
+
+            'ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) ". ";'+
+            'counter-increment: sixth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) ". ";'+
+            'counter-increment: seventh;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) ". ";'+
+            'counter-increment: eigth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) ". ";'+
+            'counter-increment: ninth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) "." counter(tenth) ". ";'+
+            'counter-increment: tenth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) "." counter(tenth) "." counter(eleventh) ". ";'+
+            'counter-increment: eleventh;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) "." counter(tenth) "." counter(eleventh) "." counter(twelth) ". ";'+
+            'counter-increment: twelth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) "." counter(tenth) "." counter(eleventh) "." counter(twelth) "." counter(thirteenth) ". ";'+
+            'counter-increment: thirteenth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "." counter(eigth) "." counter(ninth) "." counter(tenth) "." counter(eleventh) "." counter(twelth) "." counter(thirteenth) "." counter(fourteenth) ". ";'+
+            'counter-increment: fourteenth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "."  counter(eigth) "."  counter(ninth) "."  counter(tenth) "."  counter(eleventh) "."  counter(twelth) "."  counter(thirteenth) "."  counter(fourteenth) "." counter(fifteenth) ". ";'+
+            'counter-increment: fifteenth;}' +
+
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > li:before {' +
+            'content: counter(first) "." counter(second) "." counter(third) "." counter(fourth) "." counter(fifth) "." counter(sixth) "." counter(seventh) "."  counter(eigth) "."  counter(ninth) "."  counter(tenth) "."  counter(eleventh) "."  counter(twelth) "."  counter(thirteenth) "."  counter(fourteenth) "."  counter(fifteenth) "."  counter(sixthteenth) ". ";'+
+            'counter-increment: sixthteenth;}' +
+
+            'ol{ text-indent: 0px; }' +
+            'ol > ol{ text-indent: 10px; }' +
+            'ol > ol > ol{ text-indent: 20px; }' +
+            'ol > ol > ol > ol{ text-indent: 30px; }' +
+            'ol > ol > ol > ol > ol{ text-indent: 40px; }' +
+            'ol > ol > ol > ol > ol > ol{ text-indent: 50px; }' +
+            'ol > ol > ol > ol > ol > ol > ol{ text-indent: 60px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 70px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 80px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 90px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 100px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 110px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol { text-indent: 120px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 130px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 140px; }' +
+            'ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol > ol{ text-indent: 150px; }' +
+
+            stylesForExportCSS + 
+            '</style>\n' + '</head>\n') + 
+        '<body>';
+      var foot = '</body>\n</html>\n';
+
+      getPadHTML(pad, revNum, function (err, html)
+      {
+        if(ERR(err, callback)) return;
+        callback(null, head + html + foot);
+      });
     });
   });
 };
-
 
 // copied from ACE
 var _REGEX_WORDCHAR = /[\u0030-\u0039\u0041-\u005A\u0061-\u007A\u00C0-\u00D6\u00D8-\u00F6\u00F8-\u00FF\u0100-\u1FFF\u3040-\u9FFF\uF900-\uFDFF\uFE70-\uFEFE\uFF10-\uFF19\uFF21-\uFF3A\uFF41-\uFF5A\uFF66-\uFFDC]/;
@@ -573,8 +622,8 @@ function _processSpaces(s){
       }
     }
     // beginning of line is nbsp
-    for (var i = 0; i < parts.length; i++){
-      var p = parts[i];
+    for (i = 0; i < parts.length; i++){
+      p = parts[i];
       if (p == " "){
         parts[i] = '&nbsp;';
         break;
@@ -586,8 +635,8 @@ function _processSpaces(s){
   }
   else
   {
-    for (var i = 0; i < parts.length; i++){
-      var p = parts[i];
+    for (i = 0; i < parts.length; i++){
+      p = parts[i];
       if (p == " "){
         parts[i] = '&nbsp;';
       }

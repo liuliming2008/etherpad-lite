@@ -58,6 +58,8 @@ rm -rf .git/objects
 echo "remove windows jsdom-nocontextify/test folder"
 rm -rf /tmp/etherpad-lite-win/node_modules/ep_etherpad-lite/node_modules/jsdom-nocontextifiy/test/
 rm -rf /tmp/etherpad-lite-win/src/node_modules/jsdom-nocontextifiy/test/
+rm -rf /tmp/etherpad-lite-win/src/node_modules/wd/node_modules/request/node_modules/form-data/node_modules/combined-stream/test
+rm -rf /tmp/etherpad-lite-win/src/node_modules/nodemailer/node_modules/mailcomposer/node_modules/mimelib/node_modules/encoding/node_modules/iconv-lite/encodings/tables
 
 echo "create the zip..."
 cd /tmp
@@ -67,4 +69,4 @@ mv etherpad-lite-win.zip $START_FOLDER
 echo "clean up..."
 rm -rf /tmp/etherpad-lite-win
 
-echo "Finished. You can find the zip in the Etherpad Lite root folder, it's called etherpad-lite-win.zip"
+echo "Finished. You can find the zip in the Etherpad root folder, it's called etherpad-lite-win.zip"

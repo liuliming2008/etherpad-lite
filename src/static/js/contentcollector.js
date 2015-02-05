@@ -23,7 +23,7 @@
  * limitations under the License.
  */
 
-var _MAX_LIST_LEVEL = 8;
+var _MAX_LIST_LEVEL = 16;
 
 var UNorm = require('unorm');
 var Changeset = require('./Changeset');
@@ -32,12 +32,13 @@ var _ = require('./underscore');
 
 function sanitizeUnicode(s)
 {
-  return UNorm.nfc(s).replace(/[\uffff\ufffe\ufeff\ufdd0-\ufdef\ud800-\udfff]/g, '?');
+  return UNorm.nfc(s);
 }
 
-function makeContentCollector(collectStyles, browser, apool, domInterface, className2Author)
+function makeContentCollector(collectStyles, abrowser, apool, domInterface, className2Author)
 {
-  browser = browser || {};
+  abrowser = abrowser || {};
+  // I don't like the above.
 
   var dom = domInterface || {
     isNodeText: function(n)
@@ -54,10 +55,14 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     },
     nodeNumChildren: function(n)
     {
+      if(n.childNodes == null) return 0;
       return n.childNodes.length;
     },
     nodeChild: function(n, i)
     {
+      if(n.childNodes.item == null){
+        return n.childNodes[i];
+      }
       return n.childNodes.item(i);
     },
     nodeProp: function(n, p)
@@ -66,6 +71,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     },
     nodeAttr: function(n, a)
     {
+      if(n.getAttribute == null) return null;
       return n.getAttribute(a);
     },
     optNodeInnerHTML: function(n)
@@ -81,6 +87,10 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     "li": 1
   };
 
+  _.each(hooks.callAll('ccRegisterBlockElements'), function(element){
+    _blockElems[element] = 1;
+  });
+
   function isBlockElement(n)
   {
     return !!_blockElems[(dom.nodeTagName(n) || "").toLowerCase()];
@@ -89,7 +99,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
   function textify(str)
   {
     return sanitizeUnicode(
-    str.replace(/[\n\r ]/g, ' ').replace(/\xa0/g, ' ').replace(/\t/g, '        '));
+    str.replace(/\n/g, '').replace(/[\n\r ]/g, ' ').replace(/\xa0/g, ' ').replace(/\t/g, '        '));
   }
 
   function getAssoc(node, name)
@@ -314,7 +324,6 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         return [key, value];
       })
     );
-    
     lines.appendText('*', Changeset.makeAttribsString('+', attributes , apool));
   }
   cc.startNewLine = function(state)
@@ -398,7 +407,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         if (endPoint && node == endPoint.node)
         {
           selEnd = _pointHere(0, state);
-			}
+        }
       }
       while (txt.length > 0)
       {
@@ -452,8 +461,23 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
     else
     {
       var tname = (dom.nodeTagName(node) || "").toLowerCase();
+
+      if (tname == "img"){
+        var collectContentImage = hooks.callAll('collectContentImage', {
+          cc: cc,
+          state: state,
+          tname: tname,
+          styl: styl,
+          cls: cls,
+          node: node
+        });
+      }else{
+        // THIS SEEMS VERY HACKY! -- Please submit a better fix!
+        delete state.lineAttributes.img
+      }
+
       if (tname == "br")
-      {        
+      {
         this.breakLine = true;
         var tvalue = dom.nodeAttr(node, 'value');
         var induceLineBreak = hooks.callAll('collectContentLineBreak', {
@@ -467,7 +491,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         var startNewLine= (typeof(induceLineBreak)=='object'&&induceLineBreak.length==0)?true:induceLineBreak[0];
         if(startNewLine){
           cc.startNewLine(state);
-        }		  
+        }
       }
       else if (tname == "script" || tname == "style")
       {
@@ -477,9 +501,8 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
       {
         var styl = dom.nodeAttr(node, "style");
         var cls = dom.nodeProp(node, "className");
-
         var isPre = (tname == "pre");
-        if ((!isPre) && browser.safari)
+        if ((!isPre) && abrowser.safari)
         {
           isPre = (styl && /\bwhite-space:\s*pre\b/i.exec(styl));
         }
@@ -513,9 +536,37 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
           }
           if (tname == "ul" || tname == "ol")
           {
-            var type;
-            var rr = cls && /(?:^| )list-([a-z]+[12345678])\b/.exec(cls);
-            type = rr && rr[1] || (tname == "ul" ? "bullet" : "number") + String(Math.min(_MAX_LIST_LEVEL, (state.listNesting || 0) + 1));
+            if(node.attribs){
+              var type = node.attribs.class;
+            }else{
+              var type = null;
+            }
+            var rr = cls && /(?:^| )list-([a-z]+[0-9]+)\b/.exec(cls);
+            // lists do not need to have a type, so before we make a wrong guess, check if we find a better hint within the node's children
+            if(!rr && !type){
+              for (var i in node.children){
+                if(node.children[i] && node.children[i].name=='ul'){
+                  type = node.children[i].attribs.class
+                  if(type){
+                    break
+                  }
+                }
+              }
+            }
+            if(rr && rr[1]){
+              type = rr[1]
+            } else {
+              if(tname == "ul"){
+                if((type && type.match("indent")) || (node.attribs && node.attribs.class && node.attribs.class.match("indent"))){
+                  type = "indent"
+                } else {
+                  type = "bullet"
+                }
+              } else {
+                type = "number"
+              }
+              type = type + String(Math.min(_MAX_LIST_LEVEL, (state.listNesting || 0) + 1));
+            }
             oldListTypeOrNull = (_enterList(state, type) || 'none');
           }
           else if ((tname == "div" || tname == "p") && cls && cls.match(/(?:^| )ace-line\b/))
@@ -577,7 +628,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         }
       }
     }
-    if (!browser.msie)
+    if (!abrowser.msie)
     {
       _reachBlockPoint(node, 1, state);
     }
@@ -592,13 +643,11 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
         _ensureColumnZero(state);
       }
     }
-
-    if (browser.msie)
+    if (abrowser.msie)
     {
       // in IE, a point immediately after a DIV appears on the next line
       _reachBlockPoint(node, 1, state);
     }
-
     state.localAttribs = localAttribs;
   };
   // can pass a falsy value for end of doc
@@ -663,7 +712,7 @@ function makeContentCollector(collectStyles, browser, apool, domInterface, class
           {
             //var semiloc = oldString.lastIndexOf(';', lineLimit-1);
             //var lengthToTake = (semiloc >= 0 ? (semiloc+1) : lineLimit);
-            lengthToTake = lineLimit;
+            var lengthToTake = lineLimit;
             newStrings.push(oldString.substring(0, lengthToTake));
             oldString = oldString.substring(lengthToTake);
             newAttribStrings.push(Changeset.subattribution(oldAttribString, 0, lengthToTake));

@@ -18,7 +18,6 @@
  * limitations under the License.
  */
  
-var util  = require('util');
 var spawn = require('child_process').spawn;
 var async = require("async");
 var settings = require("./Settings");
@@ -100,7 +99,7 @@ else
     {
       //add data to buffer
       stdoutBuffer+=data.toString();
-      
+
       //we're searching for the prompt, cause this means everything we need is in the buffer
       if(stdoutBuffer.search("AbiWord:>") != -1)
       {
@@ -143,7 +142,7 @@ else
   //Queue with the converts we have to do
   var queue = async.queue(doConvertTask, 1);
   exports.convertFile = function(srcFile, destFile, type, callback)
-  {	
+  {
     queue.push({"srcFile": srcFile, "destFile": destFile, "type": type, "callback": callback});
   };
 }

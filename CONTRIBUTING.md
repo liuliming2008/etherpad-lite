@@ -1,12 +1,37 @@
 # Developer Guidelines
 (Please talk to people on the mailing list before you change this page, see our section on [how to get in touch](https://github.com/ether/etherpad-lite#get-in-touch))
 
+## How to write a bug report
+
+* Please be polite, we all are humans and problems can occur.
+* Please add as much information as possible, for example
+  * client os(s) and version(s)
+    * browser(s) and version(s), is the problem reproduceable on different clients
+    * special environments like firewalls or antivirus
+  * host os and version
+    * npm and nodejs version
+    * Logfiles if available
+  * steps to reproduce
+  * what you expected to happen
+  * what actually happened
+* Please format logfiles and code examples with markdown see github Markdown help below the issue textarea for more information.
+
+If you send logfiles, please set the loglevel switch DEBUG in your settings.json file:
+
+```
+/* The log level we are using, can be: DEBUG, INFO, WARN, ERROR */
+  "loglevel": "DEBUG",
+```
+
+The logfile location is defined in startup script or the log is directly shown in the commandline after you have started etherpad.
+
+
 ## Important note for pull requests
-**Pull requests should issued against the develop branch**.  We never pull directly into master.
+**Pull requests should be issued against the develop branch**.  We never pull directly into master.
 
 **Our goal is to iterate in small steps. Release often, release early. Evolution instead of a revolution**
 
-## General goals of Etherpad Lite
+## General goals of Etherpad
 To make sure everybody is going in the same direction:
 * easy to install for admins and easy to use for people
 * easy to integrate into other apps, but also usable as standalone
@@ -31,6 +56,7 @@ Also, keep it maintainable. We don't wanna end up as the monster Etherpad was!
 * Do generalize sooner or later! (if an old solution, quickly hacked together, poses more problems than it solves today, refactor it!)
 * Keep it compatible. Do not introduce changes to the public API, db schema or configurations too lightly. Don't make incompatible changes without good reasons!
 * If you do make changes, document them! (see below)
+* Use protocol independent urls "//"
 
 ## Branching model / git workflow
 see git flow http://nvie.com/posts/a-successful-git-branching-model/
@@ -63,3 +89,6 @@ The docs are in the `doc/` folder in the git repository, so people can easily fi
 Documentation should be kept up-to-date. This means, whenever you add a new API method, add a new hook or change the database model, pack the relevant changes to the docs in the same pull request.
 
 You can build the docs e.g. produce html, using `make docs`. At some point in the future we will provide an online documentation. The current documentation in the github wiki should always reflect the state of `master` (!), since there are no docs in master, yet.
+
+## Testing
+Front-end tests are found in the `tests/frontend/` folder in the repository. Run them by pointing your browser to `<yourdomainhere>/tests/frontend`.

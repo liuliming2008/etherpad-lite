@@ -28,7 +28,6 @@ JSON = require('./json2');
 var createCookie = require('./pad_utils').createCookie;
 var readCookie = require('./pad_utils').readCookie;
 var randomString = require('./pad_utils').randomString;
-var _ = require('./underscore');
 var hooks = require('./pluginfw/hooks');
 
 var token, padId, export_links;
@@ -63,8 +62,8 @@ function init() {
     var resource = exports.baseURL.substring(1) + 'socket.io';
     
     //build up the socket io connection
-    socket = io.connect(url, {resource: resource});
-
+    socket = io.connect(url, {path: exports.baseURL + 'socket.io', resource: resource});
+    
     //send the ready message once we're connected
     socket.on('connect', function()
     {
@@ -95,12 +94,6 @@ function init() {
 
     //get all the export links
     export_links = $('#export > .exportlink')
-
-    if(document.referrer.length > 0 && document.referrer.substring(document.referrer.lastIndexOf("/")-1,document.referrer.lastIndexOf("/")) === "p") {
-      $("#returnbutton").attr("href", document.referrer);
-    } else {
-      $("#returnbutton").attr("href", document.location.href.substring(0,document.location.href.lastIndexOf("/")));
-    }
 
     $('button#forcereconnect').click(function()
     {

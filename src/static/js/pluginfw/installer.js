@@ -1,6 +1,7 @@
 var plugins = require("ep_etherpad-lite/static/js/pluginfw/plugins");
 var hooks = require("ep_etherpad-lite/static/js/pluginfw/hooks");
 var npm = require("npm");
+var request = require("request");
 
 var npmIsLoaded = false;
 var withNpm = function (npmfn) {
@@ -60,17 +61,20 @@ exports.availablePlugins = null;
 var cacheTimestamp = 0;
 
 exports.getAvailablePlugins = function(maxCacheAge, cb) {
-  withNpm(function (er) {
+  request("https://static.etherpad.org/plugins.json", function(er, response, plugins){
     if (er) return cb && cb(er);
     if(exports.availablePlugins && maxCacheAge && Math.round(+new Date/1000)-cacheTimestamp <= maxCacheAge) {
       return cb && cb(null, exports.availablePlugins)
     }
-    npm.commands.search(['ep_'], /*silent?*/true, function(er, results) {
-      if(er) return cb && cb(er);
-      exports.availablePlugins = results;
-      cacheTimestamp = Math.round(+new Date/1000);
-      cb && cb(null, results)
-    })
+    try {
+      plugins = JSON.parse(plugins);
+    } catch (err) {
+      console.error('error parsing plugins.json:', err);
+      plugins = [];
+    }
+    exports.availablePlugins = plugins;
+    cacheTimestamp = Math.round(+new Date/1000);
+    cb && cb(null, plugins)
   });
 };
 
@@ -79,10 +83,19 @@ exports.search = function(searchTerm, maxCacheAge, cb) {
   exports.getAvailablePlugins(maxCacheAge, function(er, results) {
     if(er) return cb && cb(er);
     var res = {};
-    searchTerm = searchTerm.toLowerCase();
+    if (searchTerm)
+      searchTerm = searchTerm.toLowerCase();
     for (var pluginName in results) { // for every available plugin
       if (pluginName.indexOf(plugins.prefix) != 0) continue; // TODO: Also search in keywords here!
-      if(pluginName.indexOf(searchTerm) < 0 && results[pluginName].description.indexOf(searchTerm) < 0) continue;
+
+      if(searchTerm && !~results[pluginName].name.toLowerCase().indexOf(searchTerm)
+         && (typeof results[pluginName].description != "undefined" && !~results[pluginName].description.toLowerCase().indexOf(searchTerm) )
+           ){
+           if(typeof results[pluginName].description === "undefined"){
+             console.debug('plugin without Description: %s', results[pluginName].name);
+           }
+           continue;
+      }
       res[pluginName] = results[pluginName];
     }
     cb && cb(null, res)

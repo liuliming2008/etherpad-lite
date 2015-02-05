@@ -65,7 +65,6 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
     lineMarker: 0
   };
 
-  var browser = (optBrowser || {});
   var document = optDocument;
 
   if (document)
@@ -93,14 +92,27 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
   var perTextNodeProcess = (doesWrap ? _.identity : processSpaces);
   var perHtmlLineProcess = (doesWrap ? processSpaces : _.identity);
   var lineClass = 'ace-line';
+
   result.appendSpan = function(txt, cls)
   {
+
     var processedMarker = false;
     // Handle lineAttributeMarker, if present
     if (cls.indexOf(lineAttributeMarker) >= 0)
     {
       var listType = /(?:^| )list:(\S+)/.exec(cls);
       var start = /(?:^| )start:(\S+)/.exec(cls);
+
+      _.map(hooks.callAll("aceDomLinePreProcessLineAttributes", {
+        domline: domline,
+        cls: cls
+      }), function(modifier)
+      {
+        preHtml += modifier.preHtml;
+        postHtml += modifier.postHtml;
+        processedMarker |= modifier.processedMarker;
+      });
+
       if (listType)
       {
         listType = listType[1];
@@ -108,8 +120,8 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
         {
           if(listType.indexOf("number") < 0)
           {
-            preHtml = '<ul class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
-            postHtml = '</li></ul>';
+            preHtml += '<ul class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
+            postHtml = '</li></ul>' + postHtml;
           }
           else
           {
@@ -117,16 +129,15 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
               if(start[1] == 1){ // if its the first one at this level?
                 lineClass = lineClass + " " + "list-start-" + listType; // Add start class to DIV node
               }
-              preHtml = '<ol start='+start[1]+' class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
+              preHtml += '<ol start='+start[1]+' class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>';
             }else{
-               preHtml = '<ol class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>'; // Handles pasted contents into existing lists
+              preHtml += '<ol class="list-' + Security.escapeHTMLAttribute(listType) + '"><li>'; // Handles pasted contents into existing lists
             }
-            postHtml = '</li></ol>';
+            postHtml += '</li></ol>';
           }
         } 
         processedMarker = true;
       }
-      
       _.map(hooks.callAll("aceDomLineProcessLineAttributes", {
         domline: domline,
         cls: cls
@@ -136,13 +147,10 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
         postHtml += modifier.postHtml;
         processedMarker |= modifier.processedMarker;
       });
-      
       if( processedMarker ){
         result.lineMarker += txt.length;
         return; // don't append any text
       } 
-
-
     }
     var href = null;
     var simpleTags = null;
@@ -185,7 +193,7 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
     {
       if (href)
       {
-        if(!~href.indexOf("http")) // if the url doesn't include http or https etc prefix it.
+        if(!~href.indexOf("://") && !~href.indexOf("mailto:")) // if the url doesn't include a protocol prefix, assume http
         {
           href = "http://"+href;
         }
@@ -218,7 +226,7 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
       {
         newHTML += '&nbsp;';
       }
-      else if (!browser.msie)
+      else if (!optBrowser.msie)
       {
         newHTML += '<br/>';
       }
@@ -234,10 +242,10 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
       result.node.innerHTML = curHTML;
     }
     if (lineClass !== null) result.node.className = lineClass;
-	
-	hooks.callAll("acePostWriteDomLineHTML", {
-        node: result.node
-	});
+
+    hooks.callAll("acePostWriteDomLineHTML", {
+      node: result.node
+    });
   }
   result.prepareForAdd = writeHTML;
   result.finishUpdate = writeHTML;
@@ -245,7 +253,6 @@ domline.createDomLine = function(nonEmpty, doesWrap, optBrowser, optDocument)
   {
     return curHTML || '';
   };
-
   return result;
 };
 

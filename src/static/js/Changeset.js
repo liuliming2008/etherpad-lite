@@ -42,15 +42,15 @@ exports.error = function error(msg) {
 };
 
 /**
- * This method is user for assertions with Messages 
- * if assert fails, the error function called.
+ * This method is used for assertions with Messages 
+ * if assert fails, the error function is called.
  * @param b {boolean} assertion condition
  * @param msgParts {string} error to be passed if it fails
  */
 exports.assert = function assert(b, msgParts) {
   if (!b) {
     var msg = Array.prototype.slice.call(arguments, 1).join('');
-    exports.error("exports: " + msg);
+    exports.error("Failed assertion: " + msg);
   }
 };
 
@@ -281,7 +281,7 @@ exports.checkRep = function (cs) {
 
   assem.endDocument();
   var normalized = exports.pack(oldLen, calcNewLen, assem.toString(), charBank);
-  exports.assert(normalized == cs, normalized, ' != ', cs);
+  exports.assert(normalized == cs, 'Invalid changeset (checkRep failed)');
 
   return cs;
 }
@@ -507,6 +507,10 @@ exports.opAssembler = function () {
  */ 
 exports.stringIterator = function (str) {
   var curIndex = 0;
+  var newLines = str.split("\n").length - 1
+  function getnewLines(){
+    return newLines
+  }
 
   function assertRemaining(n) {
     exports.assert(n <= remaining(), "!(", n, " <= ", remaining(), ")");
@@ -515,6 +519,7 @@ exports.stringIterator = function (str) {
   function take(n) {
     assertRemaining(n);
     var s = str.substr(curIndex, n);
+    newLines -= s.split("\n").length - 1
     curIndex += n;
     return s;
   }
@@ -537,7 +542,8 @@ exports.stringIterator = function (str) {
     take: take,
     skip: skip,
     remaining: remaining,
-    peek: peek
+    peek: peek,
+    newlines: getnewLines
   };
 };
 
@@ -673,9 +679,9 @@ exports.textLinesMutator = function (lines) {
       }
       //print(inSplice+" / "+isCurLineInSplice()+" / "+curSplice[0]+" / "+curSplice[1]+" / "+lines.length);
 /*if (inSplice && (! isCurLineInSplice()) && (curSplice[0] + curSplice[1] < lines.length)) {
-	  print("BLAH");
-	  putCurLineInSplice();
-	}*/
+  print("BLAH");
+  putCurLineInSplice();
+}*/
       // tests case foo in remove(), which isn't otherwise covered in current impl
     }
     //debugPrint("skip");
@@ -903,11 +909,15 @@ exports.pack = function (oldLen, newLen, opsStr, bank) {
  * @params str {string} String to which a Changeset should be applied
  */
 exports.applyToText = function (cs, str) {
+  var totalNrOfLines = str.split("\n").length;
+  var removedLines = 0;
   var unpacked = exports.unpack(cs);
   exports.assert(str.length == unpacked.oldLen, "mismatched apply: ", str.length, " / ", unpacked.oldLen);
   var csIter = exports.opIterator(unpacked.ops);
   var bankIter = exports.stringIterator(unpacked.charBank);
   var strIter = exports.stringIterator(str);
+  var newlines = 0
+  var newlinefail = false
   var assem = exports.stringAssembler();
   while (csIter.hasNext()) {
     var op = csIter.next();
@@ -916,15 +926,25 @@ exports.applyToText = function (cs, str) {
       assem.append(bankIter.take(op.chars));
       break;
     case '-':
+      removedLines += op.lines;
+      newlines = strIter.newlines()
       strIter.skip(op.chars);
+      if(!(newlines - strIter.newlines() == 0) && (newlines - strIter.newlines() != op.lines)){
+        newlinefail = true
+      }
       break;
     case '=':
+      newlines = strIter.newlines()
       assem.append(strIter.take(op.chars));
+      if(!(newlines - strIter.newlines() == op.lines)){
+        newlinefail = true
+      }
       break;
     }
   }
+  exports.assert(totalNrOfLines >= removedLines,"cannot remove ", removedLines, " lines from text with ", totalNrOfLines, " lines");
   assem.append(strIter.take(strIter.remaining()));
-  return assem.toString();
+  return [assem.toString(),newlinefail];
 };
 
 /**
@@ -1296,7 +1316,7 @@ exports.compose = function (cs1, cs2, pool) {
   var unpacked2 = exports.unpack(cs2);
   var len1 = unpacked1.oldLen;
   var len2 = unpacked1.newLen;
-  exports.assert(len2 == unpacked2.oldLen, "mismatched composition");
+  exports.assert(len2 == unpacked2.oldLen, "mismatched composition of two changesets");
   var len3 = unpacked2.newLen;
   var bankIter1 = exports.stringIterator(unpacked1.charBank);
   var bankIter2 = exports.stringIterator(unpacked2.charBank);
@@ -1504,6 +1524,7 @@ exports.moveOpsToNewPool = function (cs, oldPool, newPool) {
   return upToDollar.replace(/\*([0-9a-z]+)/g, function (_, a) {
     var oldNum = exports.parseNum(a);
     var pair = oldPool.getAttrib(oldNum);
+    if(!pair) exports.error('Can\'t copy unknown attrib (reference attrib string to non-existant pool entry). Inconsistent attrib state!');
     var newNum = newPool.putAttrib(pair);
     return '*' + exports.numToString(newNum);
   }) + fromDollar;
@@ -1594,8 +1615,12 @@ exports.makeAText = function (text, attribs) {
  * @param pool {AttribPool} Attribute Pool to add to
  */
 exports.applyToAText = function (cs, atext, pool) {
+  var text = exports.applyToText(cs, atext.text)
+  if(text[1]){
+    throw new Error()
+  }
   return {
-    text: exports.applyToText(cs, atext.text),
+    text: text[0],
     attribs: exports.applyToAttribution(cs, atext.attribs, pool)
   };
 };
@@ -1840,27 +1865,11 @@ exports.inverse = function (cs, lines, alines, pool) {
     }
   }
 
-  function lines_length() {
-    if ((typeof lines.length) == "number") {
-      return lines.length;
-    } else {
-      return lines.length();
-    }
-  }
-
   function alines_get(idx) {
     if (alines.get) {
       return alines.get(idx);
     } else {
       return alines[idx];
-    }
-  }
-
-  function alines_length() {
-    if ((typeof alines.length) == "number") {
-      return alines.length;
-    } else {
-      return alines.length();
     }
   }
 
@@ -1882,7 +1891,7 @@ exports.inverse = function (cs, lines, alines, pool) {
       curLineOpIterLine = curLine;
       var indexIntoLine = 0;
       var done = false;
-      while (!done) {
+      while (!done && curLineOpIter.hasNext()) {
         curLineOpIter.next(curLineNextOp);
         if (indexIntoLine + curLineNextOp.chars >= curChar) {
           curLineNextOp.chars -= (curChar - indexIntoLine);
@@ -2010,7 +2019,7 @@ exports.follow = function (cs1, cs2, reverseInsertOrder, pool) {
   var unpacked2 = exports.unpack(cs2);
   var len1 = unpacked1.oldLen;
   var len2 = unpacked2.oldLen;
-  exports.assert(len1 == len2, "mismatched follow");
+  exports.assert(len1 == len2, "mismatched follow - cannot transform cs1 on top of cs2");
   var chars1 = exports.stringIterator(unpacked1.charBank);
   var chars2 = exports.stringIterator(unpacked2.charBank);
 
@@ -2105,7 +2114,9 @@ exports.follow = function (cs1, cs2, reverseInsertOrder, pool) {
       exports.copyOp(op2, opOut);
       op2.opcode = '';
     } else if (!op2.opcode) {
-      exports.copyOp(op1, opOut);
+      // @NOTE: Critical bugfix for EPL issue #1625. We do not copy op1 here
+      // in order to prevent attributes from leaking into result changesets.
+      // exports.copyOp(op1, opOut);
       op1.opcode = '';
     } else {
       // both keeps
@@ -2188,7 +2199,7 @@ exports.composeWithDeletions = function (cs1, cs2, pool) {
   var unpacked2 = exports.unpack(cs2);
   var len1 = unpacked1.oldLen;
   var len2 = unpacked1.newLen;
-  exports.assert(len2 == unpacked2.oldLen, "mismatched composition");
+  exports.assert(len2 == unpacked2.oldLen, "mismatched composition of two changesets");
   var len3 = unpacked2.newLen;
   var bankIter1 = exports.stringIterator(unpacked1.charBank);
   var bankIter2 = exports.stringIterator(unpacked2.charBank);
