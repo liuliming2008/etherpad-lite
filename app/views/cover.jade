@@ -1,0 +1,24 @@
+.site-wrapper(ng-controller='HomeCtrl')
+  .site-wrapper-inner
+    .cover-container
+      .masthead.clearfix
+        .inner
+          h3.masthead-brand Smock
+          ul.nav.masthead-nav
+            li.active
+              a(href='/#') Home
+            li
+              button.btn.btn-primary.btn-lg Sing In
+      .inner.cover
+        h1.cover-heading Smock detail
+        p.lead
+          | smock is a collaborative doc system
+        p.lead
+          a.btn.btn-lg.btn-default(href='#') Learn more
+      form.form-inline(role='form')
+        input#email.form-control(type='email', placeholder='Email Address', ng-model='user.email')
+        input#company.form-control(type='text', placeholder='Company Name', ng-model='user.team')
+        input.btn.btn-default(type='submit', value='Sign up for Free', ng-click='signup()')
+      .mastfoot
+        .inner
+          p

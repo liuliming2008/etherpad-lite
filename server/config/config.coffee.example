@@ -1,0 +1,30 @@
+path = require('path')
+rootPath = path.normalize(__dirname + '/..')
+env = process.env.NODE_ENV or 'development'
+config = 
+  development:
+    root: rootPath
+    app: name: 'smock'
+    port: 3000
+    db:
+      database: 'smock'
+      user: 'root'
+      password: '1'
+      options:
+        host: 'localhost'
+        dialect: 'mysql'
+        pool:
+          max: 5
+          min: 1
+          idle: 1000
+  test:
+    root: rootPath
+    app: name: 'smock'
+    port: 3000
+    db: 'mysql://localhost/smock-test'
+  production:
+    root: rootPath
+    app: name: 'smock'
+    port: 3000
+    db: 'mysql://localhost/smock'
+module.exports = config[env]

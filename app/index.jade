@@ -1,0 +1,52 @@
+doctype html
+html(ng-app="smockApp", ng-controller="MainCtrl")
+  head
+    meta(charset='UTF-8')
+    meta(name='viewport', content='width=device-width, initial-scale=1.0')
+    title Smock
+
+    // build:css css/vendor.css
+    // bower:css
+    link(rel='stylesheet', href='components/bootstrap/dist/css/bootstrap.css')
+    // endbower
+    // endbuild
+
+    // build:css css/main.css
+    link(rel='stylesheet', href='css/cover.css')
+    link(rel='stylesheet', href='css/custom.css')
+    // endbuild
+
+    // build:remove
+    script(src='http://localhost:35729/livereload.js')
+    // endbuild
+  body
+    div(notify-flash='')
+    include views/cover
+    //div(ng-view='')
+    // build:js js/lib.js
+    // bower:js
+    script(src='components/jquery/dist/jquery.js')
+    script(src='components/bootstrap/dist/js/bootstrap.js')
+    script(src='components/angular/angular.js')
+    script(src='components/angular-translate/angular-translate.js')
+    script(src='components/angular-bootstrap/ui-bootstrap-tpls.js')
+    script(src='components/angular-route/angular-route.js')
+    script(src='components/angular-animate/angular-animate.js')
+    script(src='components/angular-resource/angular-resource.js')
+    script(src='components/angular-cookies/angular-cookies.js')
+    script(src='components/angular-sanitize/angular-sanitize.js')
+    script(src='components/angular-drop/angular-drop.min.js')
+    script(src='components/angular-touch/angular-touch.js')
+    script(src='components/angular-translate-loader-static-files/angular-translate-loader-static-files.js')
+    // endbower
+    // endbuild
+
+    // build:js({.tmp,app}) scripts/scripts.js
+    script(src="js/app.js")
+    script(src="js/controller/main.js")
+    script(src="js/controller/home.js")
+    script(src="js/service/notifyHttpInterceptor.js")
+    script(src="js/service/smock.js")
+    script(src="js/service/security.js")
+    script(src="js/directive/notifyFlash.js")
+    // endbuild

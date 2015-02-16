@@ -1,0 +1,8 @@
+#! /bin/bash
+# when developing, some times use ctrl+C to stop nodemon but the node is still running and take the port
+port=`lsof -i tcp:3000 | grep ^node | awk '{print $2}'`
+if [ $port ]; then
+  kill $port;
+else
+  echo "no process on 3000 port";
+fi

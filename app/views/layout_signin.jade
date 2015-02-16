@@ -1,0 +1,22 @@
+doctype html
+html(ng-app="smockApp", ng-controller="MainCtrl")
+  head
+    meta(charset='UTF-8')
+    meta(name='viewport', content='width=device-width, initial-scale=1.0')
+    title Smock
+
+    // build:css css/main.css
+    // bower:css
+    link(rel='stylesheet', href='components/bootstrap/dist/css/bootstrap.css')
+    // endbower
+    // endbuild
+
+    // build:css css/main.css
+    link(rel='stylesheet', href='css/cover.css')
+    // endbuild
+
+    // build:remove
+    script(src='http://localhost:35729/livereload.js')
+    // endbuild
+  body
+    block content
